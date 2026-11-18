@@ -8,8 +8,8 @@ export default function Waitlist() {
 
   if (state?.ok) {
     return (
-      <p className="rounded-xl bg-hc-green/15 p-4 text-center font-bold text-hc-dark" role="status">
-        ✈️ {state.message}
+      <p className="py-3 text-center font-mono text-sm text-hc-muted" role="status">
+        {state.message}
       </p>
     );
   }

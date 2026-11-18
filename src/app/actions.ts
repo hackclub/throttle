@@ -16,7 +16,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function joinWaitlist(_prev: WaitlistState, formData: FormData): Promise<WaitlistState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   // Honeypot: real people never fill this hidden field.
-  if (formData.get("company")) return { ok: true, message: "You're on the list!" };
+  if (formData.get("company")) return { ok: true, message: "You're on the list. We'll email you when Throttle opens." };
   if (email.length > 254 || !EMAIL_RE.test(email)) {
     return { ok: false, message: "That email doesn't look right. Mind checking it?" };
   }
@@ -34,9 +34,19 @@ export async function joinWaitlist(_prev: WaitlistState, formData: FormData): Pr
         },
         body: JSON.stringify({ records: [{ fields: { Email: email } }], typecast: true }),
       });
-      if (!res.ok) throw new Error(`Airtable responded ${res.status}`);
+      if (!res.ok) {
+        // e.g. 401 bad key, 403 key can't write to this base, 404 wrong base/table name,
+        // 422 the table has no "Email" field
+        throw new Error(`Airtable responded ${res.status}: ${await res.text()}`);
+      }
     } else {
-      const dir = path.join(process.cwd(), ".data");
+      if (process.env.NODE_ENV === "production") {
+        console.warn(
+          "AIRTABLE_API_KEY / AIRTABLE_BASE_ID not set, falling back to .data/waitlist.json. " +
+            "This fails on hosts with a read-only filesystem (e.g. Vercel).",
+        );
+      }
+      const dir = path.join(process.env.WAITLIST_DIR || process.cwd(), ".data");
       const file = path.join(dir, "waitlist.json");
       await fs.mkdir(dir, { recursive: true });
       let list: { email: string; at: string }[] = [];
@@ -55,5 +65,5 @@ export async function joinWaitlist(_prev: WaitlistState, formData: FormData): Pr
     return { ok: false, message: "Something broke on our end. Try again in a minute?" };
   }
 
-  return { ok: true, message: "You're on the list! We'll email you the moment Throttle opens." };
+  return { ok: true, message: "You're on the list. We'll email you when Throttle opens." };
 }
