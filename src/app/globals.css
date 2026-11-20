@@ -40,6 +40,9 @@
   --color-hc-purple: #a633d6;
   --color-hc-muted: #8492a6;
   --color-hc-dark: #17171d;
+  --color-mist: #f7fafc;
+  --color-line: #e3e9f0;
+  --color-paper: #cfe4f8;
 
   --font-sans: "Phantom Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -49,8 +52,23 @@
 }
 
 body {
-  background: var(--color-hc-blue);
+  background: var(--color-paper);
   color: var(--color-hc-dark);
+}
+
+/* Drafting-table grid: fine 24px lines with heavier ones every 120px. */
+@utility blueprint {
+  background-color: var(--color-paper);
+  background-image:
+    linear-gradient(rgba(51, 142, 218, 0.3) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(51, 142, 218, 0.3) 1px, transparent 1px),
+    linear-gradient(rgba(51, 142, 218, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(51, 142, 218, 0.16) 1px, transparent 1px);
+  background-size:
+    120px 120px,
+    120px 120px,
+    24px 24px,
+    24px 24px;
 }
 
 .sky {

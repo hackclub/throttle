@@ -44,6 +44,9 @@ next-env.d.ts
 # waitlist signups (local dev)
 /.data
 
+# local dev uploads
+/public/uploads
+
 # local tooling / notes
 .claude/
 CLAUDE.md
