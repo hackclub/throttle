@@ -54,11 +54,20 @@ async function RedirectIfSignedIn() {
 }
 
 async function HackClubError({ searchParams }: Pick<Props, "searchParams">) {
-  const { error } = await searchParams;
+  const { error, reason } = await searchParams;
   if (error !== "hackclub") return null;
+  // Only short slugs from our own callback; anything else is ignored.
+  const code = typeof reason === "string" && /^[a-z_]{1,48}$/.test(reason) ? reason : null;
   return (
-    <p className="mt-4 text-sm text-hc-red" role="alert">
-      Hack Club sign-in didn&apos;t work. Try again.
-    </p>
+    <div className="mt-4" role="alert">
+      <p className="text-sm text-hc-red">
+        {code === "provider_access_denied"
+          ? "Sign-in was cancelled. Try again when you're ready."
+          : "Hack Club sign-in didn't work. Try again."}
+      </p>
+      {code && code !== "provider_access_denied" && (
+        <p className="mt-1 font-mono text-xs text-hc-muted">reason: {code}</p>
+      )}
+    </div>
   );
 }

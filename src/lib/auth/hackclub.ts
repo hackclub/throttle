@@ -11,8 +11,42 @@ function trimSlash(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+/**
+ * Public base URL. APP_URL wins; on Vercel without it we fall back to the
+ * project's production domain rather than sending localhost to Hack Club Auth.
+ */
 export function appUrl(): string {
-  return trimSlash(process.env.APP_URL || "http://localhost:3000");
+  if (process.env.APP_URL) return trimSlash(process.env.APP_URL);
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${trimSlash(process.env.VERCEL_PROJECT_PRODUCTION_URL)}`;
+  }
+  return "http://localhost:3000";
+}
+
+/** Which step of the Hack Club sign-in broke. Shown as ?reason= on /signin. */
+export type AuthFailure =
+  | "config"
+  | "discovery"
+  | "token"
+  | "userinfo"
+  | "email_unverified";
+
+export class AuthStepError extends Error {
+  constructor(
+    readonly step: AuthFailure,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** First 300 chars of a failed response, for the server log only. */
+async function bodySnippet(res: Response): Promise<string> {
+  try {
+    return (await res.text()).slice(0, 300);
+  } catch {
+    return "";
+  }
 }
 
 export function redirectUri(): string {
@@ -26,7 +60,9 @@ function issuer(): string {
 export function hackClubCredentials() {
   const clientId = process.env.HCA_CLIENT_ID;
   const clientSecret = process.env.HCA_CLIENT_SECRET;
-  if (!clientId || !clientSecret) throw new Error("Hack Club Auth is not configured");
+  if (!clientId || !clientSecret) {
+    throw new AuthStepError("config", "HCA_CLIENT_ID or HCA_CLIENT_SECRET is not set");
+  }
   return { clientId, clientSecret };
 }
 
@@ -45,8 +81,10 @@ export function getDiscovery(): Promise<Discovery> {
     const res = await fetch(`${issuer()}/.well-known/openid-configuration`, {
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`OIDC discovery failed: ${res.status}`);
-    return discoverySchema.parse(await res.json());
+    if (!res.ok) throw new AuthStepError("discovery", `OIDC discovery failed: ${res.status}`);
+    const parsed = discoverySchema.safeParse(await res.json());
+    if (!parsed.success) throw new AuthStepError("discovery", "OIDC discovery document is missing endpoints");
+    return parsed.data;
   })().catch((err) => {
     // Don't cache a failure; retry on the next sign-in.
     discovery = undefined;
@@ -90,19 +128,33 @@ export async function exchangeCode(
     }),
     cache: "no-store",
   });
-  if (!tokenRes.ok) throw new Error(`Token exchange failed: ${tokenRes.status}`);
-  const { access_token } = tokenSchema.parse(await tokenRes.json());
+  if (!tokenRes.ok) {
+    throw new AuthStepError("token", `Token exchange failed: ${tokenRes.status} ${await bodySnippet(tokenRes)}`);
+  }
+  const token = tokenSchema.safeParse(await tokenRes.json().catch(() => null));
+  if (!token.success) throw new AuthStepError("token", "Token response had no access_token");
 
   const infoRes = await fetch(endpoints.userinfo_endpoint, {
-    headers: { authorization: `Bearer ${access_token}`, accept: "application/json" },
+    headers: { authorization: `Bearer ${token.data.access_token}`, accept: "application/json" },
     cache: "no-store",
   });
-  if (!infoRes.ok) throw new Error(`Userinfo failed: ${infoRes.status}`);
-  const claims = claimsSchema.parse(await infoRes.json());
+  if (!infoRes.ok) {
+    throw new AuthStepError("userinfo", `Userinfo failed: ${infoRes.status} ${await bodySnippet(infoRes)}`);
+  }
+  const body: unknown = await infoRes.json().catch(() => null);
+  const parsed = claimsSchema.safeParse(body);
+  if (!parsed.success) {
+    // Log which claims came back (names only, not values) to spot a missing scope.
+    const keys = body && typeof body === "object" ? Object.keys(body).join(",") : typeof body;
+    throw new AuthStepError("userinfo", `Userinfo missing required claims; got keys: ${keys}`);
+  }
+  const claims = parsed.data;
 
   // Accounts are linked by email, so never trust an address the provider
   // says it hasn't verified.
-  if (claims.email_verified === false) throw new Error("Email not verified");
+  if (claims.email_verified === false) {
+    throw new AuthStepError("email_unverified", "Hack Club Auth reports the email as unverified");
+  }
 
   return {
     email: claims.email,

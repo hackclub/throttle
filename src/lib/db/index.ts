@@ -1,12 +1,11 @@
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import * as schema from "./schema";
 
-// Shared surface of the neon-http and pglite drivers. neon-http has no
-// transactions, so stick to single statements (or db.batch on Neon only).
+// Shared surface of the postgres-js and pglite drivers.
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
-// Kept on globalThis so dev hot reloads reuse one PGlite instance instead of
-// fighting over the data dir lock.
+// Kept on globalThis so dev hot reloads (and warm serverless instances) reuse
+// one connection pool instead of opening a new one per request.
 const g = globalThis as unknown as { __throttleDb?: Promise<Db> };
 
 export function getDb(): Promise<Db> {
@@ -19,12 +18,33 @@ export function getDb(): Promise<Db> {
 
 async function connect(): Promise<Db> {
   const url = process.env.DATABASE_URL;
-  if (url) {
-    const { neon } = await import("@neondatabase/serverless");
-    const { drizzle } = await import("drizzle-orm/neon-http");
-    return drizzle({ client: neon(url), schema }) as unknown as Db;
+  if (url) return connectPostgres(url);
+
+  // The local fallback stores data on disk. On Vercel that fails outright, and
+  // on Coolify/Orchard containers it would silently vanish on every redeploy.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_LOCAL_DB !== "true") {
+    throw new Error(
+      "DATABASE_URL is not set. Point it at a Postgres database (Neon, Coolify, Orchard, Supabase…) and redeploy.",
+    );
   }
   return connectLocal();
+}
+
+/** Any standard Postgres: Neon, Supabase, or one running on Coolify/Orchard. */
+async function connectPostgres(url: string): Promise<Db> {
+  const { default: postgres } = await import("postgres");
+  const { drizzle } = await import("drizzle-orm/postgres-js");
+
+  const client = postgres(url, {
+    // Serverless functions get one connection each; long-running servers pool.
+    max: Number(process.env.DB_POOL_MAX) || (process.env.VERCEL ? 1 : 10),
+    // Works behind transaction-mode poolers (Neon pooled URLs, PgBouncer, Supavisor).
+    prepare: false,
+    idle_timeout: 20,
+    connect_timeout: 10,
+    onnotice: () => {},
+  });
+  return drizzle({ client, schema }) as unknown as Db;
 }
 
 async function connectLocal(): Promise<Db> {

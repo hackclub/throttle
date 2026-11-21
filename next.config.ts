@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The Dockerfile sets BUILD_STANDALONE for a small self-contained server
+  // (Coolify, Orchard). Vercel and `next start` use the normal output.
+  output: process.env.BUILD_STANDALONE === "true" ? "standalone" : undefined,
   cacheComponents: true,
   partialPrefetching: true,
   // PGlite loads its wasm/data files from its own package dir at runtime.

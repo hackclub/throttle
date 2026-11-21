@@ -13,6 +13,12 @@ import { saveUpload } from "@/lib/uploads";
 //   written to public/uploads via saveUpload() and we return { url }.
 export async function POST(request: Request): Promise<Response> {
   const type = request.headers.get("content-type") ?? "";
+  // Local disk only exists in dev: on Vercel it's read-only, and in a container
+  // (Coolify/Orchard) files would vanish on redeploy and never be served.
+  if (process.env.NODE_ENV === "production" && !r2Configured()) {
+    console.error("[upload] R2_* variables are not set; uploads are disabled");
+    return fail("Uploads aren't set up on this server yet. Let the Throttle team know.", 503);
+  }
   if (type.startsWith("multipart/form-data")) return multipart(request);
   if (type.startsWith("application/json")) return presign(request);
   return fail("Unsupported upload request.");
