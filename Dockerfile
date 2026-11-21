@@ -3,7 +3,10 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# The build needs devDependencies (Tailwind, TypeScript). Hosts like Orchard
+# pass app variables such as NODE_ENV=production into the build, which would
+# otherwise make npm skip them.
+RUN npm ci --include=dev
 
 FROM node:24-alpine AS build
 WORKDIR /app
